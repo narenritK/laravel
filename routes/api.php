@@ -20,8 +20,16 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 });
 
 Route::post('nearest-parking-lots', [ParkingLotController::class, 'getNearestParkingLots']); //ค้นหาที่จอดรถใกล้user
+Route::post('parking-lots', [ParkingLotController::class, 'parkingLots']); //ค้นหาที่จอดรถใกล้user
 
 Route::post('check-in', [ParkingLotController::class, 'checkIn']);
 
 Route::post('check-out', [ParkingLotController::class, 'checkOut']);
+
+
+Route::prefix('reports')->group(function () {
+    Route::get('daily', [ParkingLotController::class, 'dailyReport']);
+    Route::get('weekly', [ParkingLotController::class, 'weeklyReport']);
+    Route::get('monthly', [ParkingLotController::class, 'monthlyReport']);
+});
 

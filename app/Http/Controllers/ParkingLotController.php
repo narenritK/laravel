@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\CarPark;
 use App\Models\checkin;
-
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -15,18 +15,21 @@ class ParkingLotController extends Controller
     {
         $request->validate([
             'name' => 'required|string',
+            'lat'=> 'required|string',
+            'long'=> 'required|string',
         ]);
 
         $name = $request->input('name');
-
+        $userLatitude = $request->input('lat');
+        $userLongitude = $request->input('long');
         // Retrieve user by name
-        $user = User::where('name', $name)->first();
+        // $user = User::where('name', $name)->first();
         
-        if (!$user) {
-            return response()->json(['error' => 'User not found'], 404);
-        }
-        $userLatitude = $user->lat;
-        $userLongitude = $user->long;
+        // if (!$user) {
+        //     return response()->json(['error' => 'User not found'], 404);
+        // }
+        // $userLatitude = $user->lat;
+        // $userLongitude = $user->long;
         
         $nearestParkingLots = CarPark::select('id', 'name', 'latitude', 'longitude')
         ->selectRaw(
@@ -44,7 +47,16 @@ class ParkingLotController extends Controller
         return response()->json($nearestParkingLots);
     }
 
-    
+    public function parkingLots(Request $request){
+        $request->validate([
+            'idpark' => 'required|integer',
+        ]);
+        $id_park = $request->input('idpark');
+        $parkingLots = CarPark::select('id', 'name', 'latitude', 'longitude','slot','cost')
+        ->where('id', $id_park)
+        ->get();
+        return response()->json($parkingLots);
+    }
     
     public function checkIn(Request $request)
     {
@@ -53,7 +65,7 @@ class ParkingLotController extends Controller
             'iduser' => 'required|integer',
             'idpark' => 'required|integer',
         ]);
-
+        
         $userId = $request->input('iduser');
         $parkId = $request->input('idpark');
         // Retrieve parking lot by ID
@@ -67,16 +79,33 @@ class ParkingLotController extends Controller
         if (!$parkingLot) {
             return response()->json(['error' => 'Parking lot not found'], 404);
         }
+        $countCheckIns = CheckIn::where('status', 'checkin')->count();
+        if($countCheckIns >= $parkingLot->slot){
+            return response()->json(['message' => 'Parking is full']);
 
-        $checkIn = new CheckIn();
-        $checkIn->id_user = $userId;
-        $checkIn->name_user = $user->name;
-        $checkIn->name_park = $parkingLot->name;
-        $checkIn->id_park = $parkId;
-        $checkIn->checkin = now();
-        $checkIn->save();
-
-        return response()->json(['message' => 'Check-in successful']);
+        }else{
+            $checkIn = new CheckIn();
+            $data = CheckIn::where('id_user', $userId)
+            ->orderBy('created_at', 'desc')
+            ->first();
+            if($data->status == "checkin"){
+                return response()->json(['message' => 'Please Check-out']);
+    
+            }else{
+                $checkIn->id_user = $userId;
+                $checkIn->name_user = $user->name;
+                $checkIn->name_park = $parkingLot->name;
+                $checkIn->id_park = $parkId;
+                $checkIn->checkin = now();
+                $checkIn->status ="checkin";
+                $checkIn->save();
+        
+                return response()->json(['message' => 'Check-in successful']);
+    
+            }
+    
+        }
+       
     }
 
 
@@ -90,7 +119,9 @@ class ParkingLotController extends Controller
         $userId = $request->input('iduser');
 
         // Check if user has checked in
-        $checkIn = CheckIn::where('id_user', $userId)->first();
+        $checkIn = CheckIn::where('id_user', $userId)
+        ->where('status', '!=', 'checkout')
+        ->first();
 
         if (!$checkIn) {
             return response()->json(['error' => 'User has not checked in'], 404);
@@ -116,6 +147,7 @@ class ParkingLotController extends Controller
         // Perform check-out
         $checkIn->checkout = now(); // Set checkout time to current datetime
         $checkIn->cost = $totalFee;
+        $checkIn->status = "checkout";
         $checkIn->save();
 
         return response()->json([
@@ -125,4 +157,39 @@ class ParkingLotController extends Controller
         ]);
     }
 
+
+    //report
+    public function dailyReport()
+    {
+        $date = Carbon::today();
+        $endDate = $date->copy()->addDay(); // เพิ่มวันเพื่อให้รวมถึงวันสุดท้าย
+
+        return $this->getReport($date,$endDate);
+    }
+
+    public function weeklyReport()
+    {
+        $startDate = Carbon::now()->startOfWeek();
+        $endDate = Carbon::now()->endOfWeek();
+        return $this->getReport($startDate, $endDate);
+    }
+
+    public function monthlyReport()
+    {
+        $startDate = Carbon::now()->startOfMonth();
+        $endDate = Carbon::now()->endOfMonth();
+        return $this->getReport($startDate, $endDate);
+    }
+
+    protected function getReport($startDate, $endDate = null)
+    {
+        echo $endDate;exit;
+        $query = checkIn::query();
+        $query->selectRaw('id_park, sum(cost) as total_income')
+              ->whereBetween('created_at', [$startDate, $endDate])
+              ->groupBy('id_park');
+        $report = $query->get();
+
+        return response()->json($report);
+    }
 }
